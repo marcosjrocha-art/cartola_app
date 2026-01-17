@@ -1,112 +1,150 @@
 import os
 import glob
-import argparse
 import pandas as pd
 
-# Mapeia nomes/variações do caRtola para o formato do seu app
-POS_MAP = {
-    "gol": "GOL",
-    "goleiro": "GOL",
-    "lat": "LAT",
-    "lateral": "LAT",
-    "zag": "ZAG",
-    "zagueiro": "ZAG",
-    "mei": "MEI",
-    "meia": "MEI",
-    "ata": "ATA",
-    "atacante": "ATA",
-    "tec": "TEC",
-    "técnico": "TEC",
-    "tecnico": "TEC",
+# posicao_id do Cartola (padrão)
+# 1 GOL, 2 LAT, 3 ZAG, 4 MEI, 5 ATA, 6 TEC
+POS_ID_TO_BUCKET = {
+    1: "GOL",
+    2: "LAT",
+    3: "ZAG",
+    4: "MEI",
+    5: "ATA",
+    6: "TEC",
 }
 
-def norm_pos(x: str) -> str:
-    s = str(x).strip().lower()
-    return POS_MAP.get(s, str(x).strip().upper())
+def find_repo_dir() -> str:
+    # você já tem "cartola", mas também aceitamos "caRtola"
+    for d in ["cartola", "caRtola", "caRtola-main", "caRtola-master"]:
+        if os.path.isdir(d):
+            return d
+    return ""
 
-def pick_col(df, candidates):
-    for c in candidates:
-        if c in df.columns:
-            return c
+def list_csvs(repo_dir: str):
+    pattern = os.path.join(repo_dir, "data", "01_raw", "*", "rodada-*.csv")
+    return sorted(glob.glob(pattern))
+
+def col_pick(df: pd.DataFrame, *names):
+    # retorna a primeira coluna existente
+    for n in names:
+        if n in df.columns:
+            return n
     return None
 
-def main(cartola_dir: str, years: str, out_csv: str):
-    years_list = [y.strip() for y in years.split(",") if y.strip()]
-    if not years_list:
-        raise SystemExit("Informe pelo menos 1 ano em --years (ex: 2022,2023).")
+def main():
+    repo_dir = find_repo_dir()
+    if not repo_dir:
+        raise SystemExit(
+            "Não encontrei a pasta do caRtola.\n"
+            "Dentro de ~/cartola_app rode:\n"
+            "  git clone https://github.com/henriquepgomide/caRtola.git cartola\n"
+        )
 
-    # 1) Coletar todos os CSVs do caRtola
-    files = []
-    for y in years_list:
-        pattern = os.path.join(cartola_dir, "data", "01_raw", y, "rodada-*.csv")
-        files.extend(sorted(glob.glob(pattern)))
-
+    files = list_csvs(repo_dir)
     if not files:
-        raise SystemExit(f"Nenhum arquivo encontrado. Verifique cartola_dir={cartola_dir} e years={years_list}")
+        raise SystemExit(
+            f"Encontrei '{repo_dir}', mas não achei CSVs em {repo_dir}/data/01_raw/*/rodada-*.csv\n"
+            f"Teste:\n  ls -la {repo_dir}/data/01_raw/2026 | head\n"
+        )
 
-    all_rows = []
+    rows = []
+    skipped = 0
+
     for f in files:
-        rodada = os.path.basename(f).replace("rodada-", "").replace(".csv", "")
+        # ano é o nome da pasta
         try:
-            rodada = int(rodada)
-        except:
+            ano = int(os.path.basename(os.path.dirname(f)))
+        except Exception:
+            ano = None
+
+        # rodada vem do arquivo rodada-N.csv
+        try:
+            rodada = int(os.path.basename(f).split("-")[1].replace(".csv", ""))
+        except Exception:
             rodada = None
 
         df = pd.read_csv(f)
         df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # Colunas típicas (podem variar por ano):
-        col_preco = pick_col(df, ["preco_num", "preco", "preço", "valor_num", "valor"])
-        col_media = pick_col(df, ["media_num", "media", "média"])
-        col_ult = pick_col(df, ["pontos_num", "pontos", "pontuacao", "pontuação"])
-        col_jogos = pick_col(df, ["jogos_num", "jogos"])
-        col_pos = pick_col(df, ["posicao", "posição", "posicao_nome", "posicao_id", "posicao_abreviacao"])
-        col_clube = pick_col(df, ["clube", "clube_nome", "time", "clube_id"])
+        # suportar 2 formatos:
+        # - antigo: atleta_id, preco_num, etc
+        # - caRtola atual: atletas.atleta_id, atletas.preco_num, etc
+        c_atleta = col_pick(df, "atleta_id", "atletas.atleta_id")
+        c_clube  = col_pick(df, "clube_id", "atletas.clube_id")
+        c_posid  = col_pick(df, "posicao_id", "atletas.posicao_id")
+        c_preco  = col_pick(df, "preco_num", "atletas.preco_num")
+        c_media  = col_pick(df, "media_num", "atletas.media_num")
+        c_pts    = col_pick(df, "pontos_num", "atletas.pontos_num")
+        c_jogos  = col_pick(df, "jogos_num", "atletas.jogos_num")
 
-        # Target (pontos da rodada) — usamos como target e também como "pontos_ultima" quando deslocarmos
-        col_target = pick_col(df, ["pontos_num", "pontos", "pontuacao", "pontuação"])
-
-        # Se algo essencial faltar, pula arquivo
-        essentials = [col_preco, col_media, col_pos, col_clube, col_target]
-        if any(c is None for c in essentials):
+        required = [c_atleta, c_clube, c_posid, c_preco, c_media, c_pts]
+        if any(c is None for c in required):
+            skipped += 1
             continue
 
         out = pd.DataFrame({
+            "ano": ano,
             "rodada": rodada,
-            "preco": pd.to_numeric(df[col_preco], errors="coerce"),
-            "media": pd.to_numeric(df[col_media], errors="coerce"),
-            "jogos": pd.to_numeric(df[col_jogos], errors="coerce") if col_jogos else 0,
-            "posicao_raw": df[col_pos].astype(str),
-            "clube": df[col_clube].astype(str),
-            "target": pd.to_numeric(df[col_target], errors="coerce"),
+            "atleta_id": pd.to_numeric(df[c_atleta], errors="coerce"),
+            "clube": pd.to_numeric(df[c_clube], errors="coerce").astype("Int64").astype(str),
+            "posicao_id": pd.to_numeric(df[c_posid], errors="coerce").astype("Int64"),
+            "preco": pd.to_numeric(df[c_preco], errors="coerce"),
+            "media": pd.to_numeric(df[c_media], errors="coerce"),
+            "target": pd.to_numeric(df[c_pts], errors="coerce"),
+            "jogos": pd.to_numeric(df[c_jogos], errors="coerce") if c_jogos else 0,
         })
 
-        out["bucket"] = out["posicao_raw"].apply(norm_pos)
-        all_rows.append(out)
+        out = out.dropna(subset=["atleta_id", "posicao_id", "target"])
+        out["atleta_id"] = out["atleta_id"].astype(int)
+        out["posicao_id"] = out["posicao_id"].astype(int)
+        out["bucket"] = out["posicao_id"].map(POS_ID_TO_BUCKET)
 
-    full = pd.concat(all_rows, ignore_index=True).dropna(subset=["target"])
-    full["jogos"] = full["jogos"].fillna(0).astype(int)
-    full["preco"] = full["preco"].fillna(0.0)
-    full["media"] = full["media"].fillna(0.0)
+        out = out.dropna(subset=["bucket"])
 
-    # 2) Criar "pontos_ultima" como target da rodada anterior (por clube+posicao como aproximação)
-    # Obs: ideal seria por atleta_id, mas nem sempre vem consistente em todos os anos.
-    full = full.sort_values(["clube", "bucket", "rodada"]).reset_index(drop=True)
-    full["pontos_ultima"] = full.groupby(["clube", "bucket"])["target"].shift(1).fillna(0.0)
+        # tipos
+        for c in ["preco", "media", "target"]:
+            out[c] = out[c].fillna(0.0)
+        out["jogos"] = pd.to_numeric(out["jogos"], errors="coerce").fillna(0).astype(int)
 
-    # 3) Dataset final no formato do seu app (ML)
-    train = full[["preco", "media", "pontos_ultima", "jogos", "clube", "bucket", "target"]].copy()
+        rows.append(out[[
+            "ano","rodada","atleta_id","clube","bucket",
+            "preco","media","target","jogos"
+        ]])
 
-    # Limpeza final
-    train = train.replace([float("inf"), float("-inf")], pd.NA).dropna()
-    train = train[(train["preco"] >= 0) & (train["media"] >= 0)]
-    train.to_csv(out_csv, index=False)
-    print(f"OK: gerado {out_csv} com {len(train)} linhas")
+    if not rows:
+        raise SystemExit(
+            "Não consegui ler nenhum CSV válido.\n"
+            "Me mande o output de:\n"
+            f"  ls -la {repo_dir}/data/01_raw/2026 | head\n"
+            f"  head -n 1 {repo_dir}/data/01_raw/2026/rodada-1.csv\n"
+        )
+
+    full = pd.concat(rows, ignore_index=True)
+    full = full.sort_values(["atleta_id","ano","rodada"])
+
+    # ===== Features SEM vazamento =====
+    full["pontos_ultima"] = full.groupby("atleta_id")["target"].shift(1).fillna(0.0)
+
+    full["rolling_3_prev"] = (
+        full.groupby("atleta_id")["pontos_ultima"]
+            .rolling(3).mean()
+            .reset_index(level=0, drop=True)
+            .fillna(0.0)
+    )
+
+    full["pontos_retrasada"] = full.groupby("atleta_id")["target"].shift(2).fillna(0.0)
+    full["tendencia_prev"] = (full["pontos_ultima"] - full["pontos_retrasada"]).fillna(0.0)
+    full = full.drop(columns=["pontos_retrasada"])
+
+    os.makedirs("data", exist_ok=True)
+    out_path = "data/train.csv"
+    full.to_csv(out_path, index=False)
+
+    print("OK ✅")
+    print(f"Repo detectado: {repo_dir}")
+    print(f"Arquivos CSV encontrados: {len(files)} | pulados (formato diferente): {skipped}")
+    print(f"Linhas no train.csv: {len(full)}")
+    print(f"Arquivo gerado: {out_path}")
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--cartola_dir", default="caRtola", help="Pasta onde o repo caRtola foi clonado")
-    ap.add_argument("--years", default="2022,2023", help="Anos separados por vírgula (ex: 2019,2020,2021,2022,2023)")
-    ap.add_argument("--out_csv", default="data/train.csv", help="Saída do dataset")
-    args = ap.parse_args()
-    main(args.cartola_dir, args.years, args.out_csv)
+    main()
