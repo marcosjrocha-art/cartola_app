@@ -1,0 +1,29 @@
+name: Advanced Backtest
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * 1"   # toda segunda
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - run: |
+          pip install pandas scikit-learn
+
+      - run: |
+          python scripts/backtest_advanced.py
+
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add data/backtest_results
+          git diff --cached --quiet || git commit -m "Atualiza backtest automático"
+          git push

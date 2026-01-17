@@ -1,0 +1,47 @@
+team_id,role,is_luxury,is_captain,atleta_id,apelido,posicao,clube_id,preco,score,preco_main,preco_bench,preco_total,score_total
+1,starter,False,True,51413,Walter,GOL,2305,5.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,97095,Carlos Cuesta,ZAG,267,9.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,117330,Robert Renan,ZAG,267,8.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,93716,Paulo Henrique,LAT,267,10.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,101752,Claudinho,LAT,287,4.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,106294,Marcos Antônio,MEI,276,8.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,90588,Caíque,MEI,287,6.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,93411,Cantalapiedra,MEI,287,7.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,102796,Julimar,ATA,293,4.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,143193,Viveros,ATA,293,7.0,0.0,80.0,18.0,98.0,0.0
+1,starter,False,False,90302,Pedro Rocha,ATA,294,7.0,0.0,80.0,18.0,98.0,0.0
+1,coach,False,False,92273,Odair Hellmann,TEC,293,5.0,0.0,80.0,18.0,98.0,0.0
+1,bench,False,False,104118,Lucas Arcanjo,GOL,287,4.0,0.0,80.0,18.0,98.0,0.0
+1,bench,False,False,105584,Lucas Piton,LAT,267,9.0,0.0,80.0,18.0,98.0,0.0
+1,bench,False,False,122485,Barros,MEI,267,5.0,0.0,80.0,18.0,98.0,0.0
+2,starter,False,True,125803,Pedro Morisco,GOL,294,6.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,96793,Camutanga,ZAG,287,5.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,90943,Zé Marcos,ZAG,287,5.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,101597,Ramon,LAT,287,5.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,113113,Benavídez,LAT,293,4.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,71123,Thiago Mendes,MEI,267,7.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,142279,Nuno Moreira,MEI,267,8.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,80129,Jadson,MEI,293,6.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,116706,Andrés Gómez,ATA,267,9.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,96831,Carlinhos,ATA,364,4.0,0.0,66.0,18.0,84.0,0.0
+2,starter,False,False,95332,Marcinho,ATA,315,3.0,0.0,66.0,18.0,84.0,0.0
+2,coach,False,False,126977,Fernando Seabra,TEC,294,4.0,0.0,66.0,18.0,84.0,0.0
+2,bench,False,False,82730,Marcelo Rangel,GOL,364,4.0,0.0,66.0,18.0,84.0,0.0
+2,bench,False,False,120433,Léo Derik,LAT,293,2.0,0.0,66.0,18.0,84.0,0.0
+2,bench,False,False,99440,Baralhas,MEI,287,6.0,0.0,66.0,18.0,84.0,0.0
+2,bench,False,False,92696,Renato Kayzer,ATA,287,6.0,0.0,66.0,18.0,84.0,0.0
+3,starter,False,True,68822,Rafael Santos,GOL,315,3.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,107985,Terán,ZAG,293,4.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,71227,Maicon,ZAG,294,5.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,107093,Luciano Juba,LAT,265,7.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,84339,Bruno Melo,LAT,294,4.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,100969,Ronald Lopes,MEI,287,5.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,112017,Felipinho,MEI,293,4.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,125926,Zapelli,MEI,293,6.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,122486,Rayan,ATA,267,9.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,130619,Mailson,ATA,315,2.0,0.0,65.0,18.0,83.0,0.0
+3,starter,False,False,93988,Breno Lopes,ATA,294,8.0,0.0,65.0,18.0,83.0,0.0
+3,coach,False,False,72391,Fernando Diniz,TEC,267,8.0,0.0,65.0,18.0,83.0,0.0
+3,bench,False,False,99552,Rossi,GOL,262,9.0,0.0,65.0,18.0,83.0,0.0
+3,bench,False,False,82628,Tinga,LAT,294,5.0,0.0,65.0,18.0,83.0,0.0
+3,bench,False,False,104811,Sebastián Gómez,MEI,294,4.0,0.0,65.0,18.0,83.0,0.0
