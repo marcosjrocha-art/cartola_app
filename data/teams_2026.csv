@@ -1,47 +1,46 @@
-team_id,role,is_luxury,is_captain,atleta_id,apelido,posicao,clube_id,preco,score,preco_main,preco_bench,preco_total,score_total
-1,starter,False,True,51413,Walter,GOL,2305,5.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,97095,Carlos Cuesta,ZAG,267,9.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,117330,Robert Renan,ZAG,267,8.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,93716,Paulo Henrique,LAT,267,10.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,101752,Claudinho,LAT,287,4.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,106294,Marcos Antônio,MEI,276,8.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,90588,Caíque,MEI,287,6.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,93411,Cantalapiedra,MEI,287,7.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,102796,Julimar,ATA,293,4.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,143193,Viveros,ATA,293,7.0,0.0,80.0,18.0,98.0,0.0
-1,starter,False,False,90302,Pedro Rocha,ATA,294,7.0,0.0,80.0,18.0,98.0,0.0
-1,coach,False,False,92273,Odair Hellmann,TEC,293,5.0,0.0,80.0,18.0,98.0,0.0
-1,bench,False,False,104118,Lucas Arcanjo,GOL,287,4.0,0.0,80.0,18.0,98.0,0.0
-1,bench,False,False,105584,Lucas Piton,LAT,267,9.0,0.0,80.0,18.0,98.0,0.0
-1,bench,False,False,122485,Barros,MEI,267,5.0,0.0,80.0,18.0,98.0,0.0
-2,starter,False,True,125803,Pedro Morisco,GOL,294,6.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,96793,Camutanga,ZAG,287,5.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,90943,Zé Marcos,ZAG,287,5.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,101597,Ramon,LAT,287,5.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,113113,Benavídez,LAT,293,4.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,71123,Thiago Mendes,MEI,267,7.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,142279,Nuno Moreira,MEI,267,8.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,80129,Jadson,MEI,293,6.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,116706,Andrés Gómez,ATA,267,9.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,96831,Carlinhos,ATA,364,4.0,0.0,66.0,18.0,84.0,0.0
-2,starter,False,False,95332,Marcinho,ATA,315,3.0,0.0,66.0,18.0,84.0,0.0
-2,coach,False,False,126977,Fernando Seabra,TEC,294,4.0,0.0,66.0,18.0,84.0,0.0
-2,bench,False,False,82730,Marcelo Rangel,GOL,364,4.0,0.0,66.0,18.0,84.0,0.0
-2,bench,False,False,120433,Léo Derik,LAT,293,2.0,0.0,66.0,18.0,84.0,0.0
-2,bench,False,False,99440,Baralhas,MEI,287,6.0,0.0,66.0,18.0,84.0,0.0
-2,bench,False,False,92696,Renato Kayzer,ATA,287,6.0,0.0,66.0,18.0,84.0,0.0
-3,starter,False,True,68822,Rafael Santos,GOL,315,3.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,107985,Terán,ZAG,293,4.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,71227,Maicon,ZAG,294,5.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,107093,Luciano Juba,LAT,265,7.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,84339,Bruno Melo,LAT,294,4.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,100969,Ronald Lopes,MEI,287,5.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,112017,Felipinho,MEI,293,4.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,125926,Zapelli,MEI,293,6.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,122486,Rayan,ATA,267,9.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,130619,Mailson,ATA,315,2.0,0.0,65.0,18.0,83.0,0.0
-3,starter,False,False,93988,Breno Lopes,ATA,294,8.0,0.0,65.0,18.0,83.0,0.0
-3,coach,False,False,72391,Fernando Diniz,TEC,267,8.0,0.0,65.0,18.0,83.0,0.0
-3,bench,False,False,99552,Rossi,GOL,262,9.0,0.0,65.0,18.0,83.0,0.0
-3,bench,False,False,82628,Tinga,LAT,294,5.0,0.0,65.0,18.0,83.0,0.0
-3,bench,False,False,104811,Sebastián Gómez,MEI,294,4.0,0.0,65.0,18.0,83.0,0.0
+team_id,slot,posicao_id,atleta_id,nome,apelido,clube_id,preco_num,score_pred,is_captain,is_tecnico,is_reserve,reserva_setor,is_luxury_reserve
+1,starter,1,103056,Gabriel Nascimento Rezende Brazão - Resende,Gabriel Brazão,277,10.0,3.8127204178242695,0,0,0,,0
+1,starter,2,89275,Willian de Asevedo Furtado,William,283,12.0,5.048680844538305,0,0,0,,0
+1,starter,2,91706,Marlon Rodrigues Xavier,Marlon,284,8.0,4.194370499710721,0,0,0,,0
+1,starter,3,132553,Jemmes Bruno Ribeiro da Silva,Jemmes,266,6.0,3.8344518563438945,0,0,0,,0
+1,starter,3,101908,Willian Estefani Machado,Willian Machado,2305,5.0,3.061557627126596,0,0,0,,0
+1,starter,4,87863,Giorgian Daniel de Arrascaeta Benedetti,Arrascaeta,262,23.0,4.8521291204003765,0,0,0,,0
+1,starter,4,96610,Matheus Fellipe Costa Pereira,Matheus Pereira,283,20.0,4.492544336301419,0,0,0,,0
+1,starter,4,117632,Rodrigo Garro,Garro,264,12.0,4.268550999569789,0,0,0,,0
+1,starter,5,39148,Givanildo Vieira de Souza,Hulk,282,16.0,5.3883360169521,1,0,0,,0
+1,starter,5,114802,Vitor Hugo Roque Ferreira,Vitor Roque,275,21.0,5.296876271190661,0,0,0,,0
+1,starter,5,103445,Kaio Jorge Pinto Ramos,Kaio Jorge,283,17.0,5.068202404951942,0,0,0,,0
+1,tecnico,6,110506,Abel Fernando Moreira Ferreira,Abel Ferreira,275,12.0,5.770318775572789,0,1,0,,0
+1,reserve,2,78850,Reinaldo Manoel da Silva,Reinaldo,2305,17.0,4.162473947986583,0,0,1,DEF,1
+1,reserve,4,94509,Raphael Cavalcante Veiga,Raphael Veiga,275,11.0,3.811611879021064,0,0,1,MEI,0
+1,reserve,5,101254,Alef Mangueira Severino Pereira,Alef Manga,364,5.0,3.6831894269735046,0,0,1,ATA,0
+2,starter,1,51413,Walter Leandro Capeloza Artune,Walter,2305,5.0,3.685749810055549,0,0,0,,0
+2,starter,2,100898,Victor Alexander da Silva,Vitinho,263,9.0,4.055210139762168,0,0,0,,0
+2,starter,2,102130,Joaquín Piquerez Moreira,Piquerez,275,10.0,3.932301534193481,0,0,0,,0
+2,starter,3,71684,Gustavo Raúl Gómez Portillo,Gustavo Gómez,275,13.0,3.0590256721245135,0,0,0,,0
+2,starter,3,106593,Lucas Hernán Villalba,Villalba,283,10.0,2.9941920252108147,0,0,0,,0
+2,starter,4,126471,Álvaro Martín Barreal,Barreal,277,12.0,3.646756127774918,0,0,0,,0
+2,starter,4,90703,Matheus Martins Fogaça de Paulo,Matheuzinho,287,6.0,3.572397153415943,0,0,0,,0
+2,starter,4,70592,Felipe Anderson Pereira Gomes,Felipe Anderson,275,9.0,3.5684150456375945,0,0,0,,0
+2,starter,5,99198,Pablo Vegetti,Vegetti,267,11.0,4.847949272388317,1,0,0,,0
+2,starter,5,98873,Samuel Dias Lino,Samuel Lino,262,9.0,4.674883767940139,0,0,0,,0
+2,starter,5,100652,Yuri Alberto Monteiro da Silva,Yuri Alberto,264,19.0,4.259887741090031,0,0,0,,0
+2,tecnico,6,139076,Filipe Luís Kasmirski,Filipe Luís,262,12.0,5.618277369748956,0,1,0,,0
+2,reserve,2,82775,Lucas Ramon Batista Silva,Lucas Ramon,2305,7.0,3.859232045731246,0,0,1,DEF,0
+2,reserve,4,68685,Alan Patrick Lourenço,Alan Patrick,285,8.0,3.5426463617796866,0,0,1,MEI,0
+2,reserve,5,80287,Luciano da Rocha Neves,Luciano,276,18.0,4.166784292814168,0,0,1,ATA,1
+3,starter,1,37656,Fábio Deivson Lopes Maciel,Fábio,266,12.0,3.677129120400377,0,0,0,,0
+3,starter,2,94968,Luis Antônio da Rocha Júnior,Juninho Capixaba,280,9.0,3.848680844538307,0,0,0,,0
+3,starter,2,104758,Enzo Hernán Díaz,Enzo Díaz,276,8.0,3.7824878596847364,0,0,0,,0
+3,starter,3,99274,Alexander Nahuel Barboza Ullúa,Alexander Barboza,263,11.0,2.8864997175185083,0,0,0,,0
+3,starter,3,90768,Fabrício Bruno Soares de Faria,Fabrício Bruno,283,12.0,2.8391980859176176,0,0,0,,0
+3,starter,4,63007,Neymar da Silva Santos Júnior,Neymar,277,19.0,3.363883208521945,0,0,0,,0
+3,starter,4,98517,Jean Lucas de Souza Oliveira,Jean Lucas,265,9.0,3.3504605682984647,0,0,0,,0
+3,starter,4,105436,Jorge Andrés Carrascal Guardo,Carrascal,262,13.0,3.344114537170908,0,0,0,,0
+3,starter,5,94583,Pedro Guilherme Abreu dos Santos,Pedro,262,20.0,4.093508430745202,1,0,0,,0
+3,starter,5,105563,Carlos Vinícius Alves Morais,Carlos Vinícius,284,17.0,3.940963498801557,0,0,0,,0
+3,starter,5,132071,Kevin Steven Serna Jaramillo,Serna,266,9.0,3.8726090307256813,0,0,0,,0
+3,tecnico,6,103912,Hernán Jorge Crespo,Hernán Crespo,276,7.0,5.35764445053044,0,1,0,,0
+3,reserve,2,107093,Luciano Batista da Silva Júnior,Luciano Juba,265,7.0,3.7499681891204593,0,0,1,DEF,0
+3,reserve,4,89837,Luciano Federico Acosta,Lucho Acosta,266,8.0,3.3098791186577445,0,0,1,MEI,0
+3,reserve,5,108713,Antonio Javier Galeano Ferreira,Galeano,2305,8.0,3.8638832085219446,0,0,1,ATA,1
