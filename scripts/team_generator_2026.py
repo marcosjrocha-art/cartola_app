@@ -1,43 +1,9 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-"""
-Geração de times Cartola 2026 usando:
-- histórico (CSV rodadas 2023-2025) para aprender score previsto por atleta
-- mercado 2026 via API do Cartola (atletas disponíveis)
-
-Entrega:
-- N times com formação escolhida e budget
-- Capitão = maior score previsto no XI
-- Técnico (TEC) escolhido do mercado (posicao_id=6)
-- Reservas: 1 DEF + 1 MEI + 1 ATA
-- Reserva de luxo: maior score previsto entre reservas
-- CSV de saída com colunas detalhadas
-
-Uso:
-  python scripts/team_generator_2026.py \
-    --history-root cartola/data/01_raw \
-    --years 2023 2024 2025 \
-    --n-times 3 \
-    --budget 100 \
-    --formation 4-3-3 \
-    --out data/teams_2026.csv
-
-Obs:
-- Se o atleta não aparece no histórico, ele recebe score global (média geral).
-- O algoritmo é heurístico (rápido/estável), com checagem de orçamento mínimo restante.
-"""
-
-from __future__ import annotations
-
 import argparse
-import json
-import math
-import os
-import re
-import sys
+import random
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional, Set, Tuple
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -48,755 +14,709 @@ except Exception:
 
 
 # =========================
-# Logs simples e claros
+# Cartola API
 # =========================
+API_MERCADO_STATUS = "https://api.cartolafc.globo.com/mercado/status"
+API_ATLETAS_MERCADO = "https://api.cartolafc.globo.com/atletas/mercado"
+
+# posicao_id (Cartola)
+# 1 = GOL, 2 = LAT, 3 = ZAG, 4 = MEI, 5 = ATA, 6 = TEC
+POS_MAP = {1: "GOL", 2: "LAT", 3: "ZAG", 4: "MEI", 5: "ATA", 6: "TEC"}
+
+# formação -> (ZAG, LAT, MEI, ATA) + 1 GOL + 1 TEC
+FORMATION_MAP = {
+    "3-4-3": {"ZAG": 3, "LAT": 0, "MEI": 4, "ATA": 3, "GOL": 1, "TEC": 1},
+    "3-5-2": {"ZAG": 3, "LAT": 0, "MEI": 5, "ATA": 2, "GOL": 1, "TEC": 1},
+    "4-3-3": {"ZAG": 2, "LAT": 2, "MEI": 3, "ATA": 3, "GOL": 1, "TEC": 1},
+    "4-4-2": {"ZAG": 2, "LAT": 2, "MEI": 4, "ATA": 2, "GOL": 1, "TEC": 1},
+    "4-5-1": {"ZAG": 2, "LAT": 2, "MEI": 5, "ATA": 1, "GOL": 1, "TEC": 1},
+    "5-3-2": {"ZAG": 3, "LAT": 2, "MEI": 3, "ATA": 2, "GOL": 1, "TEC": 1},
+    "5-4-1": {"ZAG": 3, "LAT": 2, "MEI": 4, "ATA": 1, "GOL": 1, "TEC": 1},
+}
+
+CAPTAIN_MULT = 1.5  # <<< capitão vale x1,5
+
+
 def info(msg: str) -> None:
     print(f"[INFO] {msg}", flush=True)
+
 
 def warn(msg: str) -> None:
     print(f"[WARN] {msg}", flush=True)
 
-def err(msg: str) -> None:
-    print(f"[ERRO] {msg}", flush=True)
 
-
-# =========================
-# Constantes Cartola
-# =========================
-# posicao_id:
-# 1 GOL, 2 LAT, 3 ZAG, 4 MEI, 5 ATA, 6 TEC
-POS_GOL = 1
-POS_LAT = 2
-POS_ZAG = 3
-POS_MEI = 4
-POS_ATA = 5
-POS_TEC = 6
-
-# Setores para reserva (simplificado)
-SECTOR_DEF = {POS_LAT, POS_ZAG}
-SECTOR_MEI = {POS_MEI}
-SECTOR_ATA = {POS_ATA}
-
-DEFAULT_API_BASE = "https://api.cartola.globo.com"
-
-
-FORMATION_MAP: Dict[str, Dict[int, int]] = {
-    # formação: {posicao_id: quantidade}
-    "4-3-3": {POS_GOL: 1, POS_LAT: 2, POS_ZAG: 2, POS_MEI: 3, POS_ATA: 3},
-    "4-4-2": {POS_GOL: 1, POS_LAT: 2, POS_ZAG: 2, POS_MEI: 4, POS_ATA: 2},
-    "3-4-3": {POS_GOL: 1, POS_ZAG: 3, POS_MEI: 4, POS_ATA: 3},
-    "3-5-2": {POS_GOL: 1, POS_ZAG: 3, POS_MEI: 5, POS_ATA: 2},
-    "5-3-2": {POS_GOL: 1, POS_LAT: 2, POS_ZAG: 3, POS_MEI: 3, POS_ATA: 2},
-    "5-4-1": {POS_GOL: 1, POS_LAT: 2, POS_ZAG: 3, POS_MEI: 4, POS_ATA: 1},
-}
-
-
-# =========================
-# Utilidades
-# =========================
-def parse_years(values: List[str]) -> List[int]:
-    out = []
-    for v in values:
-        v = str(v).strip()
-        if not v:
-            continue
-        out.append(int(v))
-    return out
-
-def safe_float(x, default=0.0) -> float:
-    try:
-        if x is None:
-            return default
-        if isinstance(x, (int, float)):
-            return float(x)
-        s = str(x).strip().replace(",", ".")
-        if s == "" or s.lower() == "nan":
-            return default
-        return float(s)
-    except Exception:
-        return default
-
-def safe_int(x, default=0) -> int:
-    try:
-        if x is None:
-            return default
-        if isinstance(x, int):
-            return int(x)
-        if isinstance(x, float) and not math.isnan(x):
-            return int(x)
-        s = str(x).strip()
-        if s == "" or s.lower() == "nan":
-            return default
-        return int(float(s))
-    except Exception:
-        return default
-
-def formation_to_counts(formation: str) -> Dict[int, int]:
-    if formation not in FORMATION_MAP:
-        raise ValueError(f"Formação inválida: {formation}. Opções: {sorted(FORMATION_MAP.keys())}")
-    return dict(FORMATION_MAP[formation])
-
-def list_round_files(history_root: str, year: int) -> List[str]:
-    # Esperado: history_root/{year}/rodada-*.csv  (ex.: cartola/data/01_raw/2023/rodada-1.csv)
-    base = os.path.join(history_root, str(year))
-    if not os.path.isdir(base):
-        return []
-    files = []
-    for fn in os.listdir(base):
-        if fn.startswith("rodada-") and fn.endswith(".csv"):
-            files.append(os.path.join(base, fn))
-    # ordena por rodada numérica
-    def rodada_key(p: str) -> int:
-        m = re.search(r"rodada-(\d+)\.csv$", p)
-        return int(m.group(1)) if m else 9999
-    files.sort(key=rodada_key)
-    return files
-
-
-# =========================
-# Histórico -> "modelo" simples (score previsto)
-# =========================
-@dataclass
-class HistoryModel:
-    global_mean: float
-    atleta_mean: Dict[int, float]
-    atleta_n: Dict[int, int]
-
-def build_history_model(history_root: str, years: List[int], min_games: int = 1, shrink_k: int = 5) -> HistoryModel:
-    """
-    Aprende score por atleta usando média de pontos históricos com suavização:
-      pred = (n/(n+k))*mean + (k/(n+k))*global_mean
-    """
-    info(f"Carregando histórico: {history_root} years={years}")
-    rows = 0
-    sum_points = 0.0
-    sum_count = 0
-
-    atleta_sum: Dict[int, float] = {}
-    atleta_cnt: Dict[int, int] = {}
-
-    # colunas históricas típicas (do seu print)
-    col_id = "atletas.atleta_id"
-    col_pts = "atletas.pontos_num"
-
-    for y in years:
-        files = list_round_files(history_root, y)
-        info(f"{y}: {len(files)} arquivos")
-        for fp in files:
-            try:
-                df = pd.read_csv(fp)
-            except Exception as e:
-                warn(f"Falha ao ler {fp}: {e}")
-                continue
-
-            if col_id not in df.columns or col_pts not in df.columns:
-                # tenta fallback com nomes alternativos
-                # (não mexe no seu histórico se estiver diferente; só ignora)
-                continue
-
-            ids = df[col_id].apply(safe_int)
-            pts = df[col_pts].apply(safe_float)
-
-            for aid, p in zip(ids.tolist(), pts.tolist()):
-                if aid <= 0:
-                    continue
-                atleta_sum[aid] = atleta_sum.get(aid, 0.0) + float(p)
-                atleta_cnt[aid] = atleta_cnt.get(aid, 0) + 1
-                sum_points += float(p)
-                sum_count += 1
-                rows += 1
-
-    global_mean = (sum_points / sum_count) if sum_count > 0 else 0.0
-    info(f"Histórico carregado: linhas={rows:,} global_mean={global_mean:.4f}")
-
-    atleta_mean: Dict[int, float] = {}
-    atleta_n: Dict[int, int] = {}
-    for aid, cnt in atleta_cnt.items():
-        if cnt < min_games:
-            continue
-        mean = atleta_sum[aid] / cnt
-        # shrink
-        k = shrink_k
-        pred = (cnt / (cnt + k)) * mean + (k / (cnt + k)) * global_mean
-        atleta_mean[aid] = float(pred)
-        atleta_n[aid] = int(cnt)
-
-    info(f"Atletas com histórico útil: {len(atleta_mean):,}")
-    return HistoryModel(global_mean=global_mean, atleta_mean=atleta_mean, atleta_n=atleta_n)
-
-
-# =========================
-# API Cartola
-# =========================
-def http_get_json(url: str, timeout: int = 20) -> dict:
+def fetch_json(url: str, timeout: float = 12.0) -> dict:
     if requests is None:
-        raise RuntimeError("requests não está disponível no ambiente. Instale: pip install requests")
-    r = requests.get(url, timeout=timeout, headers={"User-Agent": "cartola-prolab/1.0"})
+        raise RuntimeError("requests não instalado")
+    r = requests.get(url, timeout=timeout)
     r.raise_for_status()
     return r.json()
 
-def fetch_mercado(api_base: str) -> dict:
-    # endpoint público clássico
-    return http_get_json(f"{api_base}/atletas/mercado")
 
-def mercado_to_df(mercado_json: dict) -> pd.DataFrame:
-    atletas = mercado_json.get("atletas", [])
-    if not isinstance(atletas, list):
-        atletas = []
+def get_market_status() -> Tuple[int, int]:
+    data = fetch_json(API_MERCADO_STATUS, timeout=10.0)
+    temporada = int(data.get("temporada", 2026))
+    rodada = int(data.get("rodada_atual", 1))
+    return temporada, rodada
+
+
+def load_market_players() -> pd.DataFrame:
+    """
+    Baixa atletas do mercado + clubes/posições.
+    Retorna df com:
+      atleta_id, apelido, nome, posicao_id, posicao, preco, status_id, clube_id, clube_abrev
+    """
+    data = fetch_json(API_ATLETAS_MERCADO, timeout=15.0)
+
+    atletas = data.get("atletas", [])
+    if not atletas:
+        raise RuntimeError("API retornou 0 atletas no mercado.")
+
+    clubes = data.get("clubes", {}) or {}
+    clube_abrev_map: Dict[int, str] = {}
+    for k, v in clubes.items():
+        try:
+            cid = int(k)
+        except Exception:
+            try:
+                cid = int(v.get("id"))
+            except Exception:
+                continue
+        ab = str(v.get("abreviacao") or v.get("sigla") or "").strip()
+        if ab:
+            clube_abrev_map[cid] = ab
+
     rows = []
     for a in atletas:
-        try:
-            aid = safe_int(a.get("atleta_id"))
-            pos = safe_int(a.get("posicao_id"))
-            preco = safe_float(a.get("preco_num"))
-            status = safe_int(a.get("status_id"))
-            nome = str(a.get("nome") or "")
-            apelido = str(a.get("apelido") or "")
-            clube_id = safe_int(a.get("clube_id"))
-            foto = str(a.get("foto") or "")
-            rows.append(
-                {
-                    "atleta_id": aid,
-                    "posicao_id": pos,
-                    "preco_num": preco,
-                    "status_id": status,
-                    "nome": nome,
-                    "apelido": apelido,
-                    "clube_id": clube_id,
-                    "foto": foto,
-                }
-            )
-        except Exception:
+        atleta_id = a.get("atleta_id")
+        pos_id = a.get("posicao_id")
+        if atleta_id is None or pos_id is None:
             continue
+
+        clube_id = int(a.get("clube_id", 0) or 0)
+        rows.append(
+            {
+                "atleta_id": int(atleta_id),
+                "apelido": str(a.get("apelido", "")),
+                "nome": str(a.get("nome", "")),
+                "posicao_id": int(pos_id),
+                "posicao": POS_MAP.get(int(pos_id), f"POS_{pos_id}"),
+                "preco": float(a.get("preco_num", 0.0) or 0.0),
+                "status_id": int(a.get("status_id", 0) or 0),
+                "clube_id": clube_id,
+                "clube_abrev": str(clube_abrev_map.get(clube_id, "")).strip(),
+            }
+        )
+
     df = pd.DataFrame(rows)
+
+    # Filtra somente posições conhecidas e preço positivo
+    df = df[df["posicao_id"].isin([1, 2, 3, 4, 5, 6])].copy()
+    df = df[df["preco"] > 0].copy()
+
+    # fallback: se não tiver abreviação, usa "T<id>"
+    df["clube_abrev"] = df["clube_abrev"].fillna("")
+    df.loc[df["clube_abrev"] == "", "clube_abrev"] = df.loc[df["clube_abrev"] == "", "clube_id"].apply(lambda x: f"T{int(x)}")
+
     return df
 
 
-# =========================
-# Seleção do time
-# =========================
-@dataclass
-class PickResult:
-    ok: bool
-    reason: str
-    starters: pd.DataFrame
-    tecnico: Optional[pd.Series]
-    captain_id: Optional[int]
-    reserves: pd.DataFrame
-    luxury_reserve_id: Optional[int]
-    budget_total: float
-    budget_used: float
-    budget_left: float
-    score_total: float
+def load_history_scores(history_root: Path, years: List[int]) -> pd.DataFrame:
+    candidates = []
+    for base in [history_root, history_root / "01_raw"]:
+        for y in years:
+            p = base / str(y)
+            if p.exists():
+                candidates.append(p)
 
-def _min_cost_for_remaining(candidates_by_pos: Dict[int, pd.DataFrame],
-                            remaining_counts: Dict[int, int],
-                            used: Set[int]) -> float:
+    if not candidates:
+        warn("Histórico não encontrado. Vou usar score=0 e heurística por preço/posição.")
+        return pd.DataFrame(columns=["atleta_id", "score_modelo"])
+
+    rows = []
+    for p in candidates:
+        for f in sorted(p.glob("rodada-*.csv")):
+            try:
+                df = pd.read_csv(f)
+            except Exception:
+                continue
+
+            id_col = None
+            for c in ["atletas.atleta_id", "atletas_atleta_id", "atleta_id"]:
+                if c in df.columns:
+                    id_col = c
+                    break
+            if id_col is None:
+                continue
+
+            pts_col = None
+            for c in ["atletas.pontos_num", "pontos_num", "pontos", "score"]:
+                if c in df.columns:
+                    pts_col = c
+                    break
+            if pts_col is None:
+                continue
+
+            sub = df[[id_col, pts_col]].copy()
+            sub.columns = ["atleta_id", "pontos"]
+            sub["atleta_id"] = pd.to_numeric(sub["atleta_id"], errors="coerce")
+            sub["pontos"] = pd.to_numeric(sub["pontos"], errors="coerce")
+            sub = sub.dropna()
+            if len(sub):
+                rows.append(sub)
+
+    if not rows:
+        warn("Histórico lido, mas sem colunas compatíveis. Vou usar score=0.")
+        return pd.DataFrame(columns=["atleta_id", "score_modelo"])
+
+    hist = pd.concat(rows, ignore_index=True)
+    hist["atleta_id"] = hist["atleta_id"].astype(int)
+    model = hist.groupby("atleta_id")["pontos"].mean().reset_index()
+    model.columns = ["atleta_id", "score_modelo"]
+    return model
+
+
+def make_scored_market(market: pd.DataFrame, hist_scores: pd.DataFrame) -> pd.DataFrame:
+    df = market.merge(hist_scores, on="atleta_id", how="left")
+    df["score_modelo"] = df["score_modelo"].fillna(0.0)
+
+    # Heurística leve (rápida/estável)
+    df["valor"] = df["score_modelo"] / (df["preco"].replace(0, 0.01))
+    df["score"] = df["score_modelo"] + 0.05 * df["valor"]
+
+    return df
+
+
+@dataclass
+class Pick:
+    atleta_id: int
+    apelido: str
+    posicao: str
+    posicao_id: int
+    preco: float
+    score: float
+    clube_id: int
+    clube_abrev: str
+
+
+def _pos_pool(
+    scored_market: pd.DataFrame,
+    pos_name: str,
+    used_team_ids: set,
+    global_counts: Dict[int, int],
+    max_repeat: int,
+    allow_repeat_across_teams: bool,
+) -> pd.DataFrame:
     """
-    Calcula um limite inferior do custo mínimo para completar o time
-    (usado para checagem de orçamento durante o greedy).
+    Regras:
+    - NUNCA repetir dentro do mesmo time (sempre filtra used_team_ids)
+    - Repetição entre times:
+        - se allow_repeat_across_teams=False => jogador só pode aparecer 1 vez no total
+        - se True => jogador pode repetir ATÉ max_repeat vezes no total
     """
+    df_pos = scored_market[scored_market["posicao"] == pos_name].copy()
+
+    if used_team_ids:
+        df_pos = df_pos[~df_pos["atleta_id"].isin(list(used_team_ids))].copy()
+
+    if not allow_repeat_across_teams:
+        if global_counts:
+            used_global = [aid for aid, c in global_counts.items() if c >= 1]
+            if used_global:
+                df_pos = df_pos[~df_pos["atleta_id"].isin(used_global)].copy()
+    else:
+        # permite repetir, mas respeita max_repeat
+        if global_counts and max_repeat > 0:
+            blocked = [aid for aid, c in global_counts.items() if c >= max_repeat]
+            if blocked:
+                df_pos = df_pos[~df_pos["atleta_id"].isin(blocked)].copy()
+
+    return df_pos
+
+
+def _min_cost_for_k(df_pos: pd.DataFrame, k: int) -> Optional[float]:
+    if k <= 0:
+        return 0.0
+    if df_pos.empty or len(df_pos) < k:
+        return None
+    return float(df_pos["preco"].nsmallest(k).sum())
+
+
+def estimate_min_cost_to_complete(
+    scored_market: pd.DataFrame,
+    formation: str,
+    used_team_ids: set,
+    global_counts: Dict[int, int],
+    max_repeat: int,
+    allow_repeat_across_teams: bool,
+) -> Optional[float]:
+    need = FORMATION_MAP.get(formation)
+    if not need:
+        return None
+
     total = 0.0
-    for pos, need in remaining_counts.items():
-        if need <= 0:
+    for pos_name, k in need.items():
+        if int(k) <= 0:
             continue
-        df = candidates_by_pos.get(pos)
-        if df is None or df.empty:
-            return float("inf")
-        # pega os mais baratos que não estão em used
-        df2 = df[~df["atleta_id"].isin(used)].sort_values("preco_num", ascending=True)
-        if len(df2) < need:
-            return float("inf")
-        total += float(df2["preco_num"].head(need).sum())
+
+        pool = _pos_pool(
+            scored_market=scored_market,
+            pos_name=pos_name,
+            used_team_ids=used_team_ids,
+            global_counts=global_counts,
+            max_repeat=max_repeat,
+            allow_repeat_across_teams=allow_repeat_across_teams,
+        )
+        mc = _min_cost_for_k(pool, int(k))
+        if mc is None:
+            return None
+        total += mc
+
     return float(total)
 
-def _pick_one_position(pos: int,
-                       need: int,
-                       candidates: pd.DataFrame,
-                       used: Set[int],
-                       counts_remaining: Dict[int, int],
-                       candidates_by_pos: Dict[int, pd.DataFrame],
-                       budget_left: float) -> Tuple[List[pd.Series], float, str]:
-    """
-    Seleciona 'need' atletas de uma posição com greedy com checagem de orçamento mínimo restante.
-    Prioriza maior score_pred e, em empate, menor preço.
-    """
-    picked: List[pd.Series] = []
 
-    if need <= 0:
-        return picked, budget_left, "ok"
-
-    # ordena por score alto, preço baixo
-    df = candidates[~candidates["atleta_id"].isin(used)].copy()
-    if df.empty:
-        return picked, budget_left, f"sem candidatos pos={pos}"
-
-    df = df.sort_values(["score_pred", "preco_num"], ascending=[False, True])
-
-    for _, row in df.iterrows():
-        if len(picked) >= need:
-            break
-
-        aid = int(row["atleta_id"])
-        price = float(row["preco_num"])
-        if price > budget_left:
-            continue
-
-        # simula escolher esse jogador e checa se ainda dá pra completar o resto
-        used_tmp = set(used)
-        used_tmp.add(aid)
-
-        counts_tmp = dict(counts_remaining)
-        counts_tmp[pos] = max(0, counts_tmp.get(pos, 0) - 1)
-
-        min_rest = _min_cost_for_remaining(candidates_by_pos, counts_tmp, used_tmp)
-        if price + min_rest > budget_left + price:  # equivalente a min_rest > budget_left - price
-            # não dá pra completar depois
-            continue
-
-        # escolhe
-        picked.append(row)
-        used.add(aid)
-        budget_left -= price
-        counts_remaining[pos] = counts_tmp[pos]
-
-    if len(picked) < need:
-        return picked, budget_left, f"faltou pos={pos} ({len(picked)}/{need})"
-    return picked, budget_left, "ok"
-
-def _choose_tecnico(df_market: pd.DataFrame,
-                    used: Set[int],
-                    budget_left: float) -> Optional[pd.Series]:
-    tec = df_market[df_market["posicao_id"] == POS_TEC].copy()
-    tec = tec[~tec["atleta_id"].isin(used)]
-    tec = tec[tec["preco_num"] <= budget_left]
-    if tec.empty:
+def pick_best_feasible(
+    scored_market: pd.DataFrame,
+    formation: str,
+    pos_name: str,
+    budget_left: float,
+    used_team_ids: set,
+    global_counts: Dict[int, int],
+    max_repeat: int,
+    allow_repeat_across_teams: bool,
+    remaining_need: Dict[str, int],
+) -> Optional[Pick]:
+    df_pos = _pos_pool(
+        scored_market=scored_market,
+        pos_name=pos_name,
+        used_team_ids=used_team_ids,
+        global_counts=global_counts,
+        max_repeat=max_repeat,
+        allow_repeat_across_teams=allow_repeat_across_teams,
+    )
+    if df_pos.empty:
         return None
-    tec = tec.sort_values(["score_pred", "preco_num"], ascending=[False, True])
-    return tec.iloc[0]
 
-def _choose_reserves(df_market: pd.DataFrame,
-                     used: Set[int],
-                     budget_left: float) -> Tuple[pd.DataFrame, float]:
-    """
-    Reservas:
-      - 1 DEF (LAT/ZAG)
-      - 1 MEI
-      - 1 ATA
-    Dentro do orçamento restante.
-    """
-    reserves = []
-    budget = budget_left
+    df_pos = df_pos.sort_values(["score", "score_modelo", "preco"], ascending=[False, False, True]).copy()
 
-    def pick_from(pos_set: Set[int], label: str) -> Optional[pd.Series]:
-        nonlocal budget
-        cand = df_market[df_market["posicao_id"].isin(pos_set)].copy()
-        cand = cand[~cand["atleta_id"].isin(used)]
-        cand = cand[cand["preco_num"] <= budget]
-        if cand.empty:
-            return None
-        cand = cand.sort_values(["score_pred", "preco_num"], ascending=[False, True])
-        row = cand.iloc[0]
-        aid = int(row["atleta_id"])
-        price = float(row["preco_num"])
-        used.add(aid)
-        budget -= price
-        row = row.copy()
-        row["reserva_setor"] = label
-        return row
-
-    r_def = pick_from(SECTOR_DEF, "DEF")
-    if r_def is not None:
-        reserves.append(r_def)
-
-    r_mei = pick_from(SECTOR_MEI, "MEI")
-    if r_mei is not None:
-        reserves.append(r_mei)
-
-    r_ata = pick_from(SECTOR_ATA, "ATA")
-    if r_ata is not None:
-        reserves.append(r_ata)
-
-    if reserves:
-        df_res = pd.DataFrame(reserves)
-    else:
-        df_res = pd.DataFrame(columns=list(df_market.columns) + ["reserva_setor"])
-    return df_res, budget
-
-def generate_one_team(df_market: pd.DataFrame,
-                      formation: str,
-                      budget: float,
-                      used_global: Set[int],
-                      allow_repeat: bool,
-                      require_complete: bool = True) -> PickResult:
-    counts = formation_to_counts(formation)
-
-    # candidatos por posição (só "disponíveis" de mercado — aqui não filtramos status_id forte)
-    candidates_by_pos: Dict[int, pd.DataFrame] = {}
-    for pos in counts.keys():
-        candidates_by_pos[pos] = df_market[df_market["posicao_id"] == pos].copy()
-
-    used: Set[int] = set()
-    if not allow_repeat:
-        used = set(used_global)
-
-    budget_left = float(budget)
-    picked_rows: List[pd.Series] = []
-
-    counts_remaining = dict(counts)
-
-    # escolhe por ordem de "restrição": GOL primeiro, depois DEF, MEI, ATA
-    order = [POS_GOL, POS_LAT, POS_ZAG, POS_MEI, POS_ATA]
-    for pos in order:
-        if pos not in counts_remaining:
+    for _, row in df_pos.iterrows():
+        preco = float(row["preco"])
+        if preco > budget_left:
             continue
-        need = counts_remaining[pos]
-        cand = candidates_by_pos.get(pos)
-        if cand is None or cand.empty:
-            return PickResult(
-                ok=False,
-                reason=f"Sem candidatos para posicao {pos}",
-                starters=pd.DataFrame(),
-                tecnico=None,
-                captain_id=None,
-                reserves=pd.DataFrame(),
-                luxury_reserve_id=None,
-                budget_total=budget,
-                budget_used=0.0,
-                budget_left=budget,
-                score_total=0.0,
+
+        tmp_used_team = set(used_team_ids)
+        tmp_used_team.add(int(row["atleta_id"]))
+
+        tmp_need = dict(remaining_need)
+        tmp_need[pos_name] = max(0, int(tmp_need.get(pos_name, 0)) - 1)
+
+        min_rest = 0.0
+        possible = True
+        for p, k in tmp_need.items():
+            if int(k) <= 0:
+                continue
+            pool = _pos_pool(
+                scored_market=scored_market,
+                pos_name=p,
+                used_team_ids=tmp_used_team,
+                global_counts=global_counts,
+                max_repeat=max_repeat,
+                allow_repeat_across_teams=allow_repeat_across_teams,
+            )
+            mc = _min_cost_for_k(pool, int(k))
+            if mc is None:
+                possible = False
+                break
+            min_rest += mc
+
+        if not possible:
+            continue
+
+        if preco + min_rest <= budget_left:
+            return Pick(
+                atleta_id=int(row["atleta_id"]),
+                apelido=str(row["apelido"]),
+                posicao=str(row["posicao"]),
+                posicao_id=int(row["posicao_id"]),
+                preco=float(row["preco"]),
+                score=float(row["score"]),
+                clube_id=int(row.get("clube_id", 0) or 0),
+                clube_abrev=str(row.get("clube_abrev", "")).strip(),
             )
 
-        picked, budget_left, status = _pick_one_position(
-            pos=pos,
-            need=need,
-            candidates=cand,
-            used=used,
-            counts_remaining=counts_remaining,
-            candidates_by_pos=candidates_by_pos,
-            budget_left=budget_left,
+    return None
+
+
+def pick_cheapest(
+    scored_market: pd.DataFrame,
+    pos_name: str,
+    used_team_ids: set,
+    global_counts: Dict[int, int],
+    max_repeat: int,
+    allow_repeat_across_teams: bool,
+    price_cap: Optional[float] = None,
+) -> Optional[Pick]:
+    df_pos = _pos_pool(
+        scored_market=scored_market,
+        pos_name=pos_name,
+        used_team_ids=used_team_ids,
+        global_counts=global_counts,
+        max_repeat=max_repeat,
+        allow_repeat_across_teams=allow_repeat_across_teams,
+    )
+    if price_cap is not None:
+        df_pos = df_pos[df_pos["preco"] <= float(price_cap)].copy()
+    if df_pos.empty:
+        return None
+
+    df_pos = df_pos.sort_values(["preco", "score"], ascending=[True, False]).copy()
+    row = df_pos.iloc[0]
+    return Pick(
+        atleta_id=int(row["atleta_id"]),
+        apelido=str(row["apelido"]),
+        posicao=str(row["posicao"]),
+        posicao_id=int(row["posicao_id"]),
+        preco=float(row["preco"]),
+        score=float(row["score"]),
+        clube_id=int(row.get("clube_id", 0) or 0),
+        clube_abrev=str(row.get("clube_abrev", "")).strip(),
+    )
+
+
+def build_team(
+    scored_market: pd.DataFrame,
+    formation: str,
+    budget_total: float,
+    allow_repeat_across_teams: bool,
+    max_repeat: int,
+    global_counts: Dict[int, int],
+    seed: int = 42,
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
+    """
+    Orçamento (cartoletas) vale APENAS para titulares + técnico.
+    Banco NÃO consome cartoletas.
+
+    Repetição:
+    - Dentro do mesmo time: NUNCA repete (sempre bloqueado)
+    - Entre times:
+        - allow_repeat_across_teams=False => no máximo 1 vez no total
+        - True => até max_repeat vezes no total
+    """
+    random.seed(seed)
+
+    need = FORMATION_MAP.get(formation)
+    if not need:
+        raise ValueError(f"Formação inválida: {formation}")
+
+    used_team_ids = set()
+
+    min_cost_required = estimate_min_cost_to_complete(
+        scored_market=scored_market,
+        formation=formation,
+        used_team_ids=used_team_ids,
+        global_counts=global_counts,
+        max_repeat=max_repeat,
+        allow_repeat_across_teams=allow_repeat_across_teams,
+    )
+    if min_cost_required is None:
+        raise RuntimeError("Não há atletas suficientes no mercado para completar a formação (com essas regras).")
+
+    budget_ok = 1
+    if float(budget_total) < float(min_cost_required):
+        budget_ok = 0
+        warn(
+            f"Orçamento insuficiente para fechar formação. "
+            f"budget={budget_total:.2f} min_required={min_cost_required:.2f}. "
+            "Vou gerar o time completo mais barato possível."
         )
-        picked_rows.extend(picked)
-        if status != "ok":
-            if require_complete:
-                return PickResult(
-                    ok=False,
-                    reason=status,
-                    starters=pd.DataFrame(),
-                    tecnico=None,
-                    captain_id=None,
-                    reserves=pd.DataFrame(),
-                    luxury_reserve_id=None,
-                    budget_total=budget,
-                    budget_used=float(budget - budget_left),
+
+    rows = []
+    main_picks: List[Pick] = []
+    budget_left = float(budget_total)
+
+    remaining_need = dict(need)
+    pick_order = ["GOL", "ZAG", "LAT", "MEI", "ATA", "TEC"]
+
+    for pos_name in pick_order:
+        k = int(need.get(pos_name, 0))
+        if k <= 0:
+            continue
+
+        for _ in range(k):
+            p = None
+
+            if budget_ok == 1:
+                p = pick_best_feasible(
+                    scored_market=scored_market,
+                    formation=formation,
+                    pos_name=pos_name,
                     budget_left=budget_left,
-                    score_total=0.0,
+                    used_team_ids=used_team_ids,
+                    global_counts=global_counts,
+                    max_repeat=max_repeat,
+                    allow_repeat_across_teams=allow_repeat_across_teams,
+                    remaining_need=remaining_need,
                 )
-            else:
-                warn(status)
 
-    starters = pd.DataFrame(picked_rows).copy()
-    if starters.empty:
-        return PickResult(
-            ok=False,
-            reason="Nenhum atleta selecionado",
-            starters=pd.DataFrame(),
-            tecnico=None,
-            captain_id=None,
-            reserves=pd.DataFrame(),
-            luxury_reserve_id=None,
-            budget_total=budget,
-            budget_used=0.0,
-            budget_left=budget,
-            score_total=0.0,
+                if p is None:
+                    cheap = pick_cheapest(
+                        scored_market,
+                        pos_name,
+                        used_team_ids,
+                        global_counts,
+                        max_repeat,
+                        allow_repeat_across_teams,
+                        price_cap=None,
+                    )
+                    if cheap is None:
+                        raise RuntimeError(f"Sem opções para {pos_name}.")
+                    if cheap.preco > budget_left:
+                        budget_ok = 0
+                        warn(f"Budget estourou ao tentar completar {pos_name}. Mudando para modo mais barato possível.")
+                        p = None
+                    else:
+                        p = cheap
+
+            if budget_ok == 0 and p is None:
+                p = pick_cheapest(
+                    scored_market,
+                    pos_name,
+                    used_team_ids,
+                    global_counts,
+                    max_repeat,
+                    allow_repeat_across_teams,
+                    price_cap=None,
+                )
+                if p is None:
+                    raise RuntimeError(f"Não consegui completar {pos_name} (sem opções).")
+
+            used_team_ids.add(p.atleta_id)
+            remaining_need[pos_name] = max(0, int(remaining_need.get(pos_name, 0)) - 1)
+            budget_left -= float(p.preco)
+            main_picks.append(p)
+
+    starters_no_tec = [p for p in main_picks if p.posicao != "TEC"]
+    if not starters_no_tec:
+        raise RuntimeError("Time sem titulares (algo deu muito errado).")
+    captain = max(starters_no_tec, key=lambda x: x.score)
+
+    for p in main_picks:
+        rows.append(
+            {
+                "atleta_id": p.atleta_id,
+                "apelido": p.apelido,
+                "posicao": p.posicao,
+                "posicao_id": p.posicao_id,
+                "preco": p.preco,
+                "score": p.score,
+                "clube_id": p.clube_id,
+                "clube_abrev": p.clube_abrev,
+                "role": "coach" if p.posicao == "TEC" else "starter",
+                "is_captain": bool(p.atleta_id == captain.atleta_id) if p.posicao != "TEC" else False,
+                "is_luxury": False,
+            }
         )
 
-    # Técnico
-    tec = _choose_tecnico(df_market, used=used, budget_left=budget_left)
-    if tec is not None:
-        budget_left -= float(tec["preco_num"])
-        used.add(int(tec["atleta_id"]))
+    # -------------------------
+    # Banco (não consome cartoletas)
+    # regra: reserva <= mais barato titular da mesma posição
+    # -------------------------
+    bench_picks: List[Pick] = []
 
-    # Reservas
-    reserves, budget_left = _choose_reserves(df_market, used=used, budget_left=budget_left)
+    starters_df = pd.DataFrame([r for r in rows if r["role"] == "starter"])
+    cheapest_by_pos: Dict[str, float] = {}
+    if not starters_df.empty:
+        cheapest_by_pos = starters_df.groupby("posicao")["preco"].min().to_dict()
 
-    # Capitão = maior score previsto no time titular (não inclui TEC nem reservas)
-    starters_sorted = starters.sort_values(["score_pred", "preco_num"], ascending=[False, True])
-    captain_id = int(starters_sorted.iloc[0]["atleta_id"]) if len(starters_sorted) > 0 else None
+    for pos_name in ["GOL", "ZAG", "LAT", "MEI", "ATA"]:
+        if pos_name not in cheapest_by_pos:
+            continue
+        price_cap = float(cheapest_by_pos[pos_name])
 
-    # Reserva de luxo = maior score previsto entre reservas
+        p = pick_cheapest(
+            scored_market=scored_market,
+            pos_name=pos_name,
+            used_team_ids=used_team_ids,
+            global_counts=global_counts,
+            max_repeat=max_repeat,
+            allow_repeat_across_teams=allow_repeat_across_teams,
+            price_cap=price_cap,
+        )
+        if p is None:
+            warn(f"Banco: sem opção para {pos_name} <= {price_cap:.2f}. Pulando.")
+            continue
+
+        used_team_ids.add(p.atleta_id)
+        bench_picks.append(p)
+
     luxury_id = None
-    if reserves is not None and not reserves.empty:
-        r_sorted = reserves.sort_values(["score_pred", "preco_num"], ascending=[False, True])
-        luxury_id = int(r_sorted.iloc[0]["atleta_id"])
+    if bench_picks:
+        luxury_id = max(bench_picks, key=lambda x: x.score).atleta_id
 
-    # score total (só titulares + técnico + reservas? aqui reporto separado: score_total = titulares + técnico)
-    score_total = float(starters["score_pred"].sum())
-    if tec is not None:
-        score_total += float(tec["score_pred"])
-
-    budget_used = float(budget - budget_left)
-
-    # Atualiza used_global se não permitir repetição
-    if not allow_repeat:
-        used_global.update(set(starters["atleta_id"].astype(int).tolist()))
-        if tec is not None:
-            used_global.add(int(tec["atleta_id"]))
-        if reserves is not None and not reserves.empty:
-            used_global.update(set(reserves["atleta_id"].astype(int).tolist()))
-
-    return PickResult(
-        ok=True,
-        reason="ok",
-        starters=starters,
-        tecnico=tec,
-        captain_id=captain_id,
-        reserves=reserves,
-        luxury_reserve_id=luxury_id,
-        budget_total=budget,
-        budget_used=budget_used,
-        budget_left=budget_left,
-        score_total=score_total,
-    )
-
-
-# =========================
-# Montagem do dataset final
-# =========================
-def attach_predictions(df_market: pd.DataFrame, model: HistoryModel) -> pd.DataFrame:
-    df = df_market.copy()
-    preds = []
-    ns = []
-    for aid in df["atleta_id"].tolist():
-        aid = int(aid)
-        pred = model.atleta_mean.get(aid, model.global_mean)
-        n = model.atleta_n.get(aid, 0)
-        preds.append(float(pred))
-        ns.append(int(n))
-    df["score_pred"] = preds
-    df["hist_n"] = ns
-    return df
-
-def team_to_rows(team_idx: int, result: PickResult) -> List[dict]:
-    rows: List[dict] = []
-
-    # starters
-    for _, r in result.starters.iterrows():
+    for p in bench_picks:
         rows.append(
             {
-                "team_id": team_idx,
-                "slot": "starter",
-                "posicao_id": int(r["posicao_id"]),
-                "atleta_id": int(r["atleta_id"]),
-                "nome": str(r.get("nome", "")),
-                "apelido": str(r.get("apelido", "")),
-                "clube_id": int(r.get("clube_id", 0)),
-                "preco_num": float(r.get("preco_num", 0.0)),
-                "score_pred": float(r.get("score_pred", 0.0)),
-                "is_captain": 1 if (result.captain_id is not None and int(r["atleta_id"]) == int(result.captain_id)) else 0,
-                "is_tecnico": 0,
-                "is_reserve": 0,
-                "reserva_setor": "",
-                "is_luxury_reserve": 0,
+                "atleta_id": p.atleta_id,
+                "apelido": p.apelido,
+                "posicao": p.posicao,
+                "posicao_id": p.posicao_id,
+                "preco": p.preco,
+                "score": p.score,
+                "clube_id": p.clube_id,
+                "clube_abrev": p.clube_abrev,
+                "role": "bench",
+                "is_captain": False,
+                "is_luxury": bool(luxury_id is not None and p.atleta_id == luxury_id),
             }
         )
 
-    # tecnico
-    if result.tecnico is not None:
-        t = result.tecnico
-        rows.append(
-            {
-                "team_id": team_idx,
-                "slot": "tecnico",
-                "posicao_id": int(t["posicao_id"]),
-                "atleta_id": int(t["atleta_id"]),
-                "nome": str(t.get("nome", "")),
-                "apelido": str(t.get("apelido", "")),
-                "clube_id": int(t.get("clube_id", 0)),
-                "preco_num": float(t.get("preco_num", 0.0)),
-                "score_pred": float(t.get("score_pred", 0.0)),
-                "is_captain": 0,
-                "is_tecnico": 1,
-                "is_reserve": 0,
-                "reserva_setor": "",
-                "is_luxury_reserve": 0,
-            }
-        )
+    df_team = pd.DataFrame(rows)
 
-    # reserves
-    if result.reserves is not None and not result.reserves.empty:
-        for _, r in result.reserves.iterrows():
-            aid = int(r["atleta_id"])
-            rows.append(
-                {
-                    "team_id": team_idx,
-                    "slot": "reserve",
-                    "posicao_id": int(r["posicao_id"]),
-                    "atleta_id": aid,
-                    "nome": str(r.get("nome", "")),
-                    "apelido": str(r.get("apelido", "")),
-                    "clube_id": int(r.get("clube_id", 0)),
-                    "preco_num": float(r.get("preco_num", 0.0)),
-                    "score_pred": float(r.get("score_pred", 0.0)),
-                    "is_captain": 0,
-                    "is_tecnico": 0,
-                    "is_reserve": 1,
-                    "reserva_setor": str(r.get("reserva_setor", "")),
-                    "is_luxury_reserve": 1 if (result.luxury_reserve_id is not None and aid == int(result.luxury_reserve_id)) else 0,
-                }
-            )
+    preco_main = float(df_team[df_team["role"].isin(["starter", "coach"])]["preco"].sum())
+    preco_bench = float(df_team[df_team["role"] == "bench"]["preco"].sum())
+    preco_total = float(preco_main + preco_bench)
 
-    return rows
+    starters_only = df_team[df_team["role"] == "starter"].copy()
+    coach_only = df_team[df_team["role"] == "coach"].copy()
+
+    score_sum = float(starters_only["score"].sum() + coach_only["score"].sum())
+    cap_score = float(starters_only[starters_only["is_captain"] == True]["score"].sum())
+
+    # Capitão x1,5 => adiciona +0,5 do capitão
+    score_total = float(score_sum + (CAPTAIN_MULT - 1.0) * cap_score)
+
+    budget_ok_final = 1 if (preco_main <= float(budget_total) and float(budget_total) >= float(min_cost_required)) else 0
+    budget_left_final = float(float(budget_total) - preco_main)
+
+    kpis = {
+        "preco_main": preco_main,
+        "preco_bench": preco_bench,
+        "preco_total": preco_total,
+        "score_total": score_total,
+        "budget_ok": int(budget_ok_final),
+        "min_cost_required": float(min_cost_required),
+        "budget_left": float(budget_left_final),
+        "captain_mult": float(CAPTAIN_MULT),
+    }
+    return df_team, kpis
 
 
-# =========================
-# CLI
-# =========================
-def build_argparser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Gerador de times Cartola 2026 (PRO)")
-    p.add_argument("--api-base", default=DEFAULT_API_BASE, help="Base da API do Cartola")
-    p.add_argument("--history-root", required=True, help="Pasta do histórico (ex.: cartola/data/01_raw)")
-    p.add_argument("--years", nargs="+", required=True, help="Anos do histórico (ex.: 2023 2024 2025)")
-    p.add_argument("--n-times", type=int, default=3, help="Quantidade de times")
-    p.add_argument("--budget", type=float, default=100.0, help="Orçamento (C$)")
-    p.add_argument("--formation", type=str, default="4-3-3", help=f"Formação ({', '.join(sorted(FORMATION_MAP.keys()))})")
-    p.add_argument("--out", type=str, default="data/teams_2026.csv", help="Arquivo CSV de saída")
-    p.add_argument("--allow-repeat", action="store_true", help="Permitir repetir atletas entre times")
-    p.add_argument("--min-games", type=int, default=1, help="Mínimo de jogos no histórico para considerar atleta")
-    p.add_argument("--shrink-k", type=int, default=5, help="Parâmetro de suavização do score histórico")
-    p.add_argument("--require-complete", action="store_true", help="Falhar se não montar time completo (default: tenta)")
-    return p
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--n-times", type=int, required=True)
+    ap.add_argument("--budget", type=float, required=True)
+    ap.add_argument("--formation", type=str, required=True)
 
-def main() -> int:
-    args = build_argparser().parse_args()
+    # Mantido só pra compatibilidade (não usado; banco não consome cartoletas)
+    ap.add_argument("--bench-budget-ratio", type=float, default=0.0)
 
-    years = parse_years(args.years)
+    # Se ligado, permite repetição ENTRE times, respeitando max-repeat
+    ap.add_argument("--allow-repeat", action="store_true")
+
+    # Limite de vezes que o MESMO atleta pode aparecer NO TOTAL entre os times
+    # (Quando allow-repeat desligado, equivale a 1)
+    ap.add_argument("--max-repeat", type=int, default=1)
+
+    ap.add_argument("--history-root", type=str, default="cartola/data")
+    ap.add_argument("--years", type=str, default="2023,2024,2025")
+    ap.add_argument("--out", type=str, required=True)
+    args = ap.parse_args()
+
     n_times = int(args.n_times)
-    if n_times < 1:
-        err("n-times deve ser >= 1")
-        return 2
-
-    formation = str(args.formation).strip()
-    _ = formation_to_counts(formation)  # valida
-
     budget = float(args.budget)
-    if budget <= 0:
-        err("budget deve ser > 0")
-        return 2
+    formation = str(args.formation).strip()
 
-    # 1) Treina modelo simples pelo histórico
-    model = build_history_model(
-        history_root=args.history_root,
-        years=years,
-        min_games=int(args.min_games),
-        shrink_k=int(args.shrink_k),
-    )
+    allow_repeat_across_teams = bool(args.allow_repeat)
+    max_repeat = int(args.max_repeat) if int(args.max_repeat) > 0 else 1
+    if not allow_repeat_across_teams:
+        max_repeat = 1
 
-    # 2) Mercado 2026 via API
-    info("Buscando mercado 2026 via API do Cartola...")
-    try:
-        mercado = fetch_mercado(args.api_base)
-    except Exception as e:
-        err(f"Falha ao acessar API do Cartola: {e}")
-        return 3
+    years = [int(x.strip()) for x in str(args.years).split(",") if x.strip().isdigit()]
+    history_root = Path(args.history_root)
 
-    status = mercado.get("status_mercado", None)
-    rodada = mercado.get("rodada_atual", None)
-    temporada = mercado.get("temporada", None)
+    if formation not in FORMATION_MAP:
+        raise SystemExit(f"[ERRO] Formação inválida: {formation}")
+    if n_times < 1:
+        raise SystemExit("[ERRO] n-times precisa ser >= 1")
 
-    info(f"API status: temporada={temporada} rodada_atual={rodada} status_mercado={status}")
+    info("Iniciando geração de times 2026 via API do Cartola...")
+    temporada, rodada = get_market_status()
+    info(f"API status: temporada={temporada} rodada_atual={rodada}")
 
-    df_market = mercado_to_df(mercado)
-    if df_market.empty:
-        err("API retornou mercado vazio.")
-        return 4
+    market = load_market_players()
+    info(f"Atletas no mercado (filtrados): {len(market)}")
 
-    # 3) Junta predição
-    df_market = attach_predictions(df_market, model)
+    hist = load_history_scores(history_root, years)
+    info(f"Histórico carregado: {len(hist)} atletas com média")
 
-    # 4) Gera times
-    used_global: Set[int] = set()
-    out_rows: List[dict] = []
-    summary_rows: List[dict] = []
+    scored = make_scored_market(market, hist)
 
-    ok_count = 0
-    fail_count = 0
+    out_rows = []
+    ok = 0
+    failed = 0
+
+    # contagem global de aparições por atleta entre times
+    global_counts: Dict[int, int] = {}
+
+    info(f"Repetição entre times: {'ON' if allow_repeat_across_teams else 'OFF'} | max_repeat={max_repeat}")
 
     for i in range(1, n_times + 1):
-        info(f"=== Gerando TIME {i}/{n_times} (formation={formation} budget={budget:.2f}) ===")
-        res = generate_one_team(
-            df_market=df_market,
-            formation=formation,
-            budget=budget,
-            used_global=used_global,
-            allow_repeat=bool(args.allow_repeat),
-            require_complete=bool(args.require_complete),
-        )
-        if not res.ok:
-            warn(f"TIME {i}: falhou: {res.reason}")
-            fail_count += 1
-            continue
+        try:
+            team_df, kpis = build_team(
+                scored_market=scored,
+                formation=formation,
+                budget_total=budget,
+                allow_repeat_across_teams=allow_repeat_across_teams,
+                max_repeat=max_repeat,
+                global_counts=global_counts,
+                seed=1234 + i,
+            )
 
-        ok_count += 1
-        out_rows.extend(team_to_rows(i, res))
+            team_df = team_df.copy()
+            team_df["team_id"] = int(i)
+            team_df["formation"] = formation
+            team_df["budget"] = float(budget)
 
-        # summary
-        captain_name = ""
-        if res.captain_id is not None:
-            cap = res.starters[res.starters["atleta_id"].astype(int) == int(res.captain_id)]
-            if not cap.empty:
-                captain_name = str(cap.iloc[0].get("apelido") or cap.iloc[0].get("nome") or "")
+            team_df["preco_main"] = float(kpis["preco_main"])
+            team_df["preco_bench"] = float(kpis["preco_bench"])
+            team_df["preco_total"] = float(kpis["preco_total"])
+            team_df["score_total"] = float(kpis["score_total"])
 
-        tec_name = ""
-        if res.tecnico is not None:
-            tec_name = str(res.tecnico.get("apelido") or res.tecnico.get("nome") or "")
+            team_df["budget_ok"] = int(kpis["budget_ok"])
+            team_df["min_cost_required"] = float(kpis["min_cost_required"])
+            team_df["budget_left"] = float(kpis["budget_left"])
+            team_df["captain_mult"] = float(kpis["captain_mult"])
 
-        lux_name = ""
-        if res.luxury_reserve_id is not None and res.reserves is not None and not res.reserves.empty:
-            lux = res.reserves[res.reserves["atleta_id"].astype(int) == int(res.luxury_reserve_id)]
-            if not lux.empty:
-                lux_name = str(lux.iloc[0].get("apelido") or lux.iloc[0].get("nome") or "")
+            out_rows.append(team_df)
 
-        summary_rows.append(
-            {
-                "team_id": i,
-                "formation": formation,
-                "budget_total": res.budget_total,
-                "budget_used": round(res.budget_used, 2),
-                "budget_left": round(res.budget_left, 2),
-                "score_total_pred": round(res.score_total, 4),
-                "captain_id": res.captain_id or 0,
-                "captain_name": captain_name,
-                "tecnico_id": int(res.tecnico["atleta_id"]) if res.tecnico is not None else 0,
-                "tecnico_name": tec_name,
-                "luxury_reserve_id": res.luxury_reserve_id or 0,
-                "luxury_reserve_name": lux_name,
-                "n_starters": int(len(res.starters)),
-                "n_reserves": int(len(res.reserves)) if res.reserves is not None else 0,
-            }
-        )
+            # atualiza contagem global (considera todos: titulares, técnico e banco)
+            for aid in team_df["atleta_id"].astype(int).tolist():
+                global_counts[aid] = int(global_counts.get(aid, 0) + 1)
+
+            ok += 1
+            info(
+                f"Time {i}: atletas={len(team_df)} "
+                f"preco_main={kpis['preco_main']:.2f} (budget={budget:.2f}, ok={kpis['budget_ok']}) "
+                f"score_total={kpis['score_total']:.2f} (capx{CAPTAIN_MULT}) "
+                f"banco={kpis['preco_bench']:.2f}"
+            )
+
+        except Exception as e:
+            failed += 1
+            warn(f"Time {i} falhou: {e}")
 
     if not out_rows:
-        err("Nenhum time foi gerado. Tente aumentar budget, permitir repetição ou mudar formação.")
-        return 5
+        raise SystemExit("[ERRO] Nenhum time gerado.")
 
-    # 5) Salva CSV (detalhado) + summary
-    out_path = str(args.out)
-    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
-    df_out = pd.DataFrame(out_rows)
+    df_out = pd.concat(out_rows, ignore_index=True)
+
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     df_out.to_csv(out_path, index=False)
 
-    summary_path = out_path.replace(".csv", "_summary.csv")
-    df_sum = pd.DataFrame(summary_rows)
-    df_sum.to_csv(summary_path, index=False)
-
-    info("=== RESUMO ===")
-    info(f"Gerados: ok={ok_count}/{n_times} falhas={fail_count}")
-    info(f"Arquivo salvo: {out_path}")
-    info(f"Resumo salvo:  {summary_path}")
-
-    return 0
+    info(f"Arquivo salvo: {out_path} (linhas={len(df_out)})")
+    info(f"Gerados: ok={ok}/{n_times} | falhas={failed}")
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    main()

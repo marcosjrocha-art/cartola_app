@@ -2,71 +2,13 @@ import streamlit as st
 import pandas as pd
 from pathlib import Path
 import subprocess
-import textwrap
 
 st.set_page_config(
     page_title="Cartola FC — Pro Lab 2026",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="wide"
 )
 
 DATA_TEAMS = Path("data/teams_2026.csv")
-DATA_SUMMARY = Path("data/teams_2026_summary.csv")
-
-# =========
-# Helpers
-# =========
-POS_NAME = {
-    1: "GOL",
-    2: "LAT",
-    3: "ZAG",
-    4: "MEI",
-    5: "ATA",
-    6: "TEC",
-}
-
-def fmt_money(x: float) -> str:
-    try:
-        return f"{float(x):.2f}"
-    except Exception:
-        return "0.00"
-
-def fmt_score(x: float) -> str:
-    try:
-        return f"{float(x):.2f}"
-    except Exception:
-        return "0.00"
-
-def pill(label: str) -> str:
-    return f"<span style='padding:4px 10px;border-radius:999px;background:rgba(15,23,42,0.06);font-size:12px'>{label}</span>"
-
-def card(title: str, value: str, subtitle: str = "") -> str:
-    sub = f"<div style='color:rgba(15,23,42,0.65);font-size:12px;margin-top:2px'>{subtitle}</div>" if subtitle else ""
-    return f"""
-    <div style="border:1px solid rgba(15,23,42,0.10);border-radius:16px;padding:14px 14px 12px 14px;background:white">
-        <div style="font-size:12px;color:rgba(15,23,42,0.70);font-weight:600;letter-spacing:.2px">{title}</div>
-        <div style="font-size:26px;font-weight:800;line-height:1.1;margin-top:6px;color:rgba(15,23,42,0.95)">{value}</div>
-        {sub}
-    </div>
-    """
-
-# =========
-# Global CSS (clean & elegant)
-# =========
-st.markdown(
-    """
-    <style>
-      .block-container {padding-top: 1.2rem; padding-bottom: 3rem;}
-      h1, h2, h3 {letter-spacing: -0.5px;}
-      .stDataFrame {border-radius: 14px; overflow: hidden;}
-      div[data-testid="stMetric"] {border:1px solid rgba(15,23,42,0.10); border-radius: 16px; padding: 10px;}
-      .muted {color: rgba(15,23,42,0.65); font-size: 13px;}
-      .section {margin-top: 6px; padding: 14px; border: 1px solid rgba(15,23,42,0.10); border-radius: 16px; background: white;}
-      .kpiRow {display:flex; gap: 12px; flex-wrap: wrap;}
-    </style>
-    """,
-    unsafe_allow_html=True
-)
 
 # ======================
 # SIDEBAR
@@ -74,319 +16,186 @@ st.markdown(
 st.sidebar.title("⚙️ Configurações")
 
 n_times = st.sidebar.slider("Quantidade de times", 1, 10, 3)
-budget = st.sidebar.slider("Orçamento total (C$)", 80.0, 200.0, 120.0)
+budget = st.sidebar.slider("Cartoletas disponíveis (titulares + técnico)", 80.0, 250.0, 120.0)
 formation = st.sidebar.selectbox(
     "Formação",
-    ["3-4-3", "3-5-2", "4-3-3", "4-4-2", "5-3-2", "5-4-1"],
-    index=2
+    ["3-4-3", "3-5-2", "4-3-3", "4-4-2", "4-5-1", "5-3-2", "5-4-1"]
 )
-allow_repeat = st.sidebar.checkbox("Permitir repetir atletas entre times", value=False)
 
-with st.sidebar.expander("⚙️ Avançado", expanded=False):
-    history_root = st.text_input("History root", value="cartola/data/01_raw")
-    years = st.text_input("Years (separados por espaço)", value="2023 2024 2025")
-    min_games = st.number_input("Mínimo de jogos no histórico", min_value=1, max_value=50, value=1, step=1)
-    shrink_k = st.number_input("Suavização (shrink-k)", min_value=1, max_value=50, value=5, step=1)
-    require_complete = st.checkbox("Falhar se não montar time completo", value=False)
+allow_repeat = st.sidebar.checkbox("Permitir repetir atletas entre times")
+max_repeat = 1
+if allow_repeat:
+    max_repeat = st.sidebar.slider("Limite de repetição (entre times)", 1, 5, 2)
 
-show_logs = st.sidebar.checkbox("Mostrar logs detalhados", value=False)
+show_logs = st.sidebar.checkbox("Mostrar logs detalhados do gerador", value=False)
 
-if st.sidebar.button("🚀 Gerar times", use_container_width=True):
+if st.sidebar.button("🚀 Gerar times"):
     cmd = [
         "python",
         "scripts/team_generator_2026.py",
-        "--history-root", str(history_root),
-        "--years", *years.split(),
-        "--n-times", str(int(n_times)),
-        "--budget", str(float(budget)),
-        "--formation", str(formation),
-        "--min-games", str(int(min_games)),
-        "--shrink-k", str(int(shrink_k)),
+        "--n-times", str(n_times),
+        "--budget", str(budget),
+        "--formation", formation,
         "--out", str(DATA_TEAMS),
     ]
+
+    # Banco não consome cartoletas, mas mantemos compatibilidade com o script (ele ignora)
+    cmd += ["--bench-budget-ratio", "0.0"]
+
     if allow_repeat:
         cmd.append("--allow-repeat")
-    if require_complete:
-        cmd.append("--require-complete")
+        cmd += ["--max-repeat", str(max_repeat)]
 
-    with st.spinner("Gerando times (histórico + mercado 2026)..."):
+    with st.spinner("Gerando times..."):
         result = subprocess.run(cmd, capture_output=True, text=True)
 
     if result.returncode != 0:
-        st.error("Erro ao gerar os times. Veja os logs abaixo (ou no terminal).")
-        if result.stdout:
-            st.code(result.stdout)
-        if result.stderr:
-            st.code(result.stderr)
+        st.error("Erro ao gerar os times.")
+        if show_logs:
+            st.subheader("📜 Logs do gerador")
+            st.code((result.stdout or "") + "\n" + (result.stderr or ""))
+        else:
+            st.info("Ative 'Mostrar logs detalhados do gerador' para ver o erro completo.")
     else:
         st.success("Times gerados com sucesso!")
-        if show_logs:
-            if result.stdout:
-                st.code(result.stdout)
-            if result.stderr:
-                st.code(result.stderr)
+        if show_logs and ((result.stdout or "").strip() or (result.stderr or "").strip()):
+            st.subheader("📜 Logs do gerador")
+            st.code((result.stdout or "") + "\n" + (result.stderr or ""))
 
 # ======================
-# HEADER
+# MAIN
 # ======================
-st.markdown("## ⚽ Cartola FC — Pro Lab 2026")
-st.markdown(
-    "<div class='muted'>Geração inteligente: histórico (2023–2025) + mercado 2026 • com <b>Capitão</b>, <b>Técnico</b>, <b>Reservas</b> e <b>Reserva de Luxo</b>.</div>",
-    unsafe_allow_html=True
-)
+st.title("⚽ Cartola FC — Pro Lab 2026")
+st.caption("Geração inteligente: histórico (2023–2025) + mercado 2026 | Capitão x1,5 + Técnico + Banco + Luxo")
 
-# ======================
-# LOAD DATA
-# ======================
 if not DATA_TEAMS.exists():
-    st.info("Nenhum time gerado ainda. Use o botão **🚀 Gerar times** na barra lateral.")
+    st.info("Nenhum time gerado ainda.")
     st.stop()
 
-try:
-    df = pd.read_csv(DATA_TEAMS)
-except Exception as e:
-    st.error(f"Falha ao ler {DATA_TEAMS}: {e}")
-    st.stop()
+df = pd.read_csv(DATA_TEAMS)
 
-df_sum = None
-if DATA_SUMMARY.exists():
-    try:
-        df_sum = pd.read_csv(DATA_SUMMARY)
-    except Exception:
-        df_sum = None
-
-# Normalizações de colunas esperadas
-for col in ["team_id", "slot", "posicao_id", "atleta_id", "preco_num", "score_pred"]:
+# Normaliza colunas esperadas (pra não quebrar se algum CSV antigo estiver aí)
+for col, default in [
+    ("role", ""),
+    ("is_captain", False),
+    ("is_luxury", False),
+    ("clube_abrev", ""),
+    ("preco_main", 0.0),
+    ("preco_bench", 0.0),
+    ("preco_total", 0.0),
+    ("score_total", 0.0),
+    ("budget", 0.0),
+    ("budget_ok", 1),
+    ("budget_left", 0.0),
+    ("min_cost_required", 0.0),
+    ("captain_mult", 1.5),
+]:
     if col not in df.columns:
-        st.error(f"CSV não tem a coluna obrigatória: {col}. Gere os times novamente.")
-        st.stop()
-
-df["posicao"] = df["posicao_id"].map(POS_NAME).fillna(df["posicao_id"].astype(str))
-df["preco_num"] = pd.to_numeric(df["preco_num"], errors="coerce").fillna(0.0)
-df["score_pred"] = pd.to_numeric(df["score_pred"], errors="coerce").fillna(0.0)
+        df[col] = default
 
 # ======================
-# KPIs (summary first)
+# KPIs
 # ======================
-st.markdown("### 📊 Resumo")
+st.subheader("📊 Resumo")
 
-teams_n = int(df["team_id"].nunique())
-unique_players = int(df["atleta_id"].nunique())
+teams_n = int(df["team_id"].nunique()) if "team_id" in df.columns else 0
+score_mean = float(df.groupby("team_id")["score_total"].first().mean()) if teams_n else 0.0
+preco_main_mean = float(df.groupby("team_id")["preco_main"].first().mean()) if teams_n else 0.0
+unique_players = int(df["atleta_id"].nunique()) if "atleta_id" in df.columns else 0
 
-if df_sum is not None and not df_sum.empty:
-    score_mean = float(df_sum["score_total_pred"].mean())
-    budget_used_mean = float(df_sum["budget_used"].mean())
-    budget_left_mean = float(df_sum["budget_left"].mean())
-else:
-    # fallback: calcula do detalhado
-    # score_total_pred ~ starters + tecnico
-    tmp = df[df["slot"].isin(["starter", "tecnico"])].groupby("team_id")["score_pred"].sum()
-    score_mean = float(tmp.mean()) if len(tmp) else 0.0
-    budget_used_mean = float(df.groupby("team_id")["preco_num"].sum().mean()) if teams_n else 0.0
-    budget_left_mean = max(0.0, float(budget) - budget_used_mean)
-
-k1, k2, k3, k4 = st.columns(4)
-k1.markdown(card("Times gerados", str(teams_n), "geração atual"), unsafe_allow_html=True)
-k2.markdown(card("Score médio previsto", fmt_score(score_mean), "titulares + técnico"), unsafe_allow_html=True)
-k3.markdown(card("Preço médio usado", fmt_money(budget_used_mean), "C$"), unsafe_allow_html=True)
-k4.markdown(card("Atletas únicos", str(unique_players), "no conjunto"), unsafe_allow_html=True)
-
-st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Times gerados", teams_n)
+c2.metric("Score médio (cap x1,5)", f"{score_mean:.2f}")
+c3.metric("Preço médio (titulares+TEC)", f"{preco_main_mean:.2f}")
+c4.metric("Atletas únicos", unique_players)
 
 # ======================
 # TIMES
 # ======================
-st.markdown("### 🧩 Times gerados")
+st.subheader("🧩 Times gerados")
 
-team_ids = sorted(df["team_id"].unique().tolist())
+for team_id, team in df.groupby("team_id"):
+    st.markdown(f"## 🟦 Time {team_id}")
 
-# filtro superior (bonito e útil)
-top_bar = st.columns([2, 2, 3, 3])
-with top_bar[0]:
-    team_sel = st.selectbox("Selecionar time", options=["Todos"] + [f"Time {t}" for t in team_ids], index=0)
-with top_bar[1]:
-    show_only_best = st.checkbox("Ordenar por score (desc)", value=True)
-with top_bar[2]:
-    show_tables = st.checkbox("Mostrar tabelas completas", value=True)
-with top_bar[3]:
-    compact = st.checkbox("Modo compacto", value=False)
+    budget_team = float(team["budget"].iloc[0]) if "budget" in team.columns else 0.0
+    preco_main = float(team["preco_main"].iloc[0])
+    preco_bench = float(team["preco_bench"].iloc[0])
+    preco_total = float(team["preco_total"].iloc[0])
+    score_total = float(team["score_total"].iloc[0])
 
-def render_team(team_id: int, team: pd.DataFrame):
-    starters = team[team["slot"] == "starter"].copy()
-    tec = team[team["slot"] == "tecnico"].copy()
-    reserves = team[team["slot"] == "reserve"].copy()
+    budget_ok = int(team["budget_ok"].iloc[0]) if "budget_ok" in team.columns else 1
+    budget_left = float(team["budget_left"].iloc[0]) if "budget_left" in team.columns else (budget_team - preco_main)
+    min_required = float(team["min_cost_required"].iloc[0]) if "min_cost_required" in team.columns else 0.0
+    cap_mult = float(team["captain_mult"].iloc[0]) if "captain_mult" in team.columns else 1.5
 
-    # capitão
-    cap = starters[starters.get("is_captain", 0).astype(int) == 1]
-    cap_name = "—"
-    cap_pos = "—"
-    cap_score = 0.0
-    if len(cap):
-        cap_name = str(cap.iloc[0].get("apelido") or cap.iloc[0].get("nome") or "—")
-        cap_pos = str(cap.iloc[0].get("posicao") or "—")
-        cap_score = float(cap.iloc[0].get("score_pred", 0.0))
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Score total", f"{score_total:.2f}")
+    k2.metric("Cartoletas disponíveis", f"{budget_team:.2f}")
+    k3.metric("Gasto (titulares+TEC)", f"{preco_main:.2f}")
+    k4.metric("Banco (não consome cartoletas)", f"{preco_bench:.2f}")
+    k5.metric("Sobra (cartoletas)", f"{budget_left:.2f}")
 
-    # técnico
-    tec_name = "—"
-    tec_score = 0.0
-    if len(tec):
-        tec_name = str(tec.iloc[0].get("apelido") or tec.iloc[0].get("nome") or "—")
-        tec_score = float(tec.iloc[0].get("score_pred", 0.0))
+    if not budget_ok:
+        st.warning(
+            f"Orçamento insuficiente para fechar a formação COM o filtro de cartoletas. "
+            f"Gerado o time completo mais barato possível. "
+            f"(mínimo estimado: {min_required:.2f} | capitão x{cap_mult:.1f})"
+        )
 
-    # reserva de luxo
-    luxo = reserves[reserves.get("is_luxury_reserve", 0).astype(int) == 1]
-    luxo_name = "—"
-    luxo_score = 0.0
-    if len(luxo):
-        luxo_name = str(luxo.iloc[0].get("apelido") or luxo.iloc[0].get("nome") or "—")
-        luxo_score = float(luxo.iloc[0].get("score_pred", 0.0))
+    # Captain + Coach
+    captain = team[(team["role"] == "starter") & (team["is_captain"] == True)]
+    coach = team[team["role"] == "coach"]
 
-    # KPIs por time
-    budget_used = float(team["preco_num"].sum())
-    score_total = float(starters["score_pred"].sum()) + tec_score
-    budget_left = max(0.0, float(budget) - budget_used)
+    cap_name = captain["apelido"].iloc[0] if len(captain) else "—"
+    cap_pos = captain["posicao"].iloc[0] if len(captain) else "—"
+    cap_club = captain["clube_abrev"].iloc[0] if len(captain) else "—"
+    tec_name = coach["apelido"].iloc[0] if len(coach) else "—"
+    tec_club = coach["clube_abrev"].iloc[0] if len(coach) else "—"
 
-    # header
     st.markdown(
-        f"""
-        <div class="section">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">
-            <div>
-              <div style="font-size:18px;font-weight:800;color:rgba(15,23,42,0.95)">🟦 Time {team_id}</div>
-              <div class="muted">Formação: <b>{formation}</b> &nbsp;•&nbsp; {pill(f"Capitão: {cap_name} ({cap_pos})")} &nbsp; {pill(f"Técnico: {tec_name}")} &nbsp; {pill(f"Luxo: {luxo_name}")}</div>
-            </div>
-            <div style="display:flex;gap:10px;flex-wrap:wrap">
-              <div style="text-align:right">
-                <div class="muted">Score previsto (XI+TEC)</div>
-                <div style="font-size:22px;font-weight:900">{fmt_score(score_total)}</div>
-              </div>
-              <div style="text-align:right">
-                <div class="muted">Preço usado</div>
-                <div style="font-size:22px;font-weight:900">C$ {fmt_money(budget_used)}</div>
-              </div>
-              <div style="text-align:right">
-                <div class="muted">Saldo</div>
-                <div style="font-size:22px;font-weight:900">C$ {fmt_money(budget_left)}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True
+        f"**👑 Capitão (x{cap_mult:.1f}):** {cap_name} ({cap_pos} — {cap_club})  \n"
+        f"**🧑‍🏫 Técnico:** {tec_name} ({tec_club})"
     )
 
-    # Conteúdo
-    cA, cB = st.columns([2.2, 1.3])
-
-    with cA:
-        st.markdown("#### Titulares")
-        view = starters.copy()
-        view["C"] = view.get("is_captain", 0).astype(int).apply(lambda x: "👑" if x == 1 else "")
-        view["pos"] = view["posicao"]
-        view["preço"] = view["preco_num"].apply(fmt_money)
-        view["score"] = view["score_pred"].apply(fmt_score)
-
-        cols = ["C", "apelido", "pos", "preço", "score"]
-        for col in cols:
-            if col not in view.columns:
-                view[col] = ""
-
-        view = view[cols]
-        if show_only_best:
-            # ordena por score (string -> converter)
-            starters2 = starters.sort_values(["score_pred", "preco_num"], ascending=[False, True]).copy()
-            view = starters2.copy()
-            view["C"] = view.get("is_captain", 0).astype(int).apply(lambda x: "👑" if x == 1 else "")
-            view["pos"] = view["posicao"]
-            view["preço"] = view["preco_num"].apply(fmt_money)
-            view["score"] = view["score_pred"].apply(fmt_score)
-            view = view[cols]
-
-        st.dataframe(view, use_container_width=True, hide_index=True)
-
-    with cB:
-        st.markdown("#### Técnico & Banco")
-        # mini-cards
-        st.markdown(
-            f"""
-            <div class="section" style="padding:12px">
-              <div style="display:flex;flex-direction:column;gap:10px">
-                <div>
-                  <div class="muted">👑 Capitão (maior score previsto)</div>
-                  <div style="font-size:16px;font-weight:900">{cap_name}</div>
-                  <div class="muted">{cap_pos} • score {fmt_score(cap_score)}</div>
-                </div>
-                <div>
-                  <div class="muted">🧑‍🏫 Técnico</div>
-                  <div style="font-size:16px;font-weight:900">{tec_name}</div>
-                  <div class="muted">score {fmt_score(tec_score)}</div>
-                </div>
-                <div>
-                  <div class="muted">💎 Reserva de luxo</div>
-                  <div style="font-size:16px;font-weight:900">{luxo_name}</div>
-                  <div class="muted">score {fmt_score(luxo_score)}</div>
-                </div>
-              </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        if reserves is None or reserves.empty:
-            st.info("Reservas não geradas (orçamento/mercado).")
-        else:
-            r = reserves.copy()
-            r["💎"] = r.get("is_luxury_reserve", 0).astype(int).apply(lambda x: "💎" if x == 1 else "")
-            r["setor"] = r.get("reserva_setor", "").fillna("")
-            r["pos"] = r["posicao"]
-            r["preço"] = r["preco_num"].apply(fmt_money)
-            r["score"] = r["score_pred"].apply(fmt_score)
-
-            cols = ["💎", "setor", "apelido", "pos", "preço", "score"]
-            for col in cols:
-                if col not in r.columns:
-                    r[col] = ""
-
-            # luxo primeiro
-            r = r.sort_values(["is_luxury_reserve", "score_pred"], ascending=[False, False])
-            st.dataframe(r[cols], use_container_width=True, hide_index=True)
-
-    if show_tables:
-        with st.expander("📋 Ver dados brutos do time (debug)", expanded=False):
-            st.dataframe(team.sort_values(["slot", "posicao_id", "score_pred"], ascending=[True, True, False]), use_container_width=True)
-
-    st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
-
-# render
-if team_sel == "Todos":
-    for tid in team_ids:
-        render_team(tid, df[df["team_id"] == tid].copy())
-else:
-    tid = int(team_sel.replace("Time ", "").strip())
-    render_team(tid, df[df["team_id"] == tid].copy())
-
-# ======================
-# DOWNLOADS
-# ======================
-st.markdown("### ⬇️ Downloads")
-
-d1, d2 = st.columns([1, 1])
-with d1:
-    st.download_button(
-        "Baixar CSV detalhado (times_2026.csv)",
-        df.to_csv(index=False),
-        file_name="teams_2026.csv",
-        mime="text/csv",
-        use_container_width=True
+    # Starters table
+    starters = team[team["role"] == "starter"].copy()
+    starters["C"] = starters["is_captain"].apply(lambda x: "👑" if bool(x) else "")
+    starters = starters[["C", "apelido", "clube_abrev", "posicao", "preco", "score"]].sort_values(
+        "score", ascending=False
     )
-with d2:
-    if df_sum is not None and not df_sum.empty:
-        st.download_button(
-            "Baixar resumo (teams_2026_summary.csv)",
-            df_sum.to_csv(index=False),
-            file_name="teams_2026_summary.csv",
-            mime="text/csv",
-            use_container_width=True
+    starters = starters.rename(columns={"clube_abrev": "time"})
+
+    st.markdown("### Titulares")
+    st.dataframe(starters, use_container_width=True)
+
+    # Coach table
+    coach_df = team[team["role"] == "coach"].copy()
+    if len(coach_df):
+        coach_df = coach_df[["apelido", "clube_abrev", "posicao", "preco", "score"]].rename(columns={"clube_abrev": "time"})
+        st.markdown("### Técnico")
+        st.dataframe(coach_df, use_container_width=True)
+
+    # Bench table
+    bench = team[team["role"] == "bench"].copy()
+    if len(bench):
+        bench["Luxo"] = bench["is_luxury"].apply(lambda x: "💎" if bool(x) else "")
+        bench = bench[["Luxo", "apelido", "clube_abrev", "posicao", "preco", "score"]].sort_values(
+            ["Luxo", "score"], ascending=[False, False]
         )
+        bench = bench.rename(columns={"clube_abrev": "time"})
+        st.markdown("### Banco de reservas + reserva de luxo")
+        st.dataframe(bench, use_container_width=True)
     else:
-        st.info("Resumo não encontrado. Gere os times novamente para criar o _summary.csv.")
+        st.info("Banco não gerado (sem opções que respeitem a regra de preço por posição).")
+
+    st.divider()
+
+# ======================
+# DOWNLOAD
+# ======================
+st.download_button(
+    "⬇️ Baixar CSV",
+    df.to_csv(index=False),
+    file_name="teams_2026.csv",
+    mime="text/csv"
+)
